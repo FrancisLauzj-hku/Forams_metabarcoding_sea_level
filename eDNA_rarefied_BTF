@@ -1,0 +1,104 @@
+# This script is the R code to run the Bayesian transfer function of foraminiferal eDNA to reconstruct relative sea level of the manuscript: Foraminiferal eDNA reveals late Holocene sea-level changes.
+
+# eDNA data as input of Bayesian transfer function should all be rarefied, and only taxa over 5% of relative abundance in at least one modern or core samples should be input.
+
+library(devtools)
+library(BTFr)
+library(dplyr)
+library(ggplot2)
+
+modern_elevation_rare <- read.delim("....txt")
+modern_otu5_final_rare <- read.delim("....txt")
+core_otu5_final_rare <- read.delim("....txt")
+MP_priors <- read.delim("....txt") # Change the file name accordingly
+
+# Running the modern calibration model
+modern_mod_otu5_final_rare <- run_modern(modern_elevation_rare,
+                                               modern_otu5_final_rare,
+                                               dx = 0.2)
+
+# Save Model Output to File, put in the file name accordingly
+saveRDS(modern_mod_otu5_final_rare, file = "....rds") 
+
+# Run a full 10-fold cross validation to get an out of sample prediction for all the modern samples
+valid_run_otu5_final_rare <- run_valid(modern_elevation = modern_elevation_rare, 
+                                          modern_species = modern_otu5_final_rare,
+                                          n_folds = 10,
+                                          dx = 0.2)
+
+saveRDS(valid_run_otu5_final_rare, file = "....rds") #put in the file name accordingly
+
+# Corrected species_select vector
+species_select <- c(
+  "Family_Saccamminidae",
+...
+) # Fill in the taxa ID
+
+src <- response_curves(modern_mod_otu5_final_rare, species_select = species_select)
+
+#Get plots and raw abundance data
+src$src_plot
+
+valid_run_otu5_final_rare %>% summarise(coverage = sum(lower < True & True < upper)*100/n(),
+                        RMSE = sqrt(mean((True - SWLI)^2))) %>% round(2)
+
+#plot modeled vs. true values from cross-validation
+ggplot(valid_run_otu5_final_rare , aes(x = True, y = SWLI)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin = lower, ymax = upper)) +
+  geom_line(aes(x = True, y = True))
+
+# Define the file path and name for the CSV file
+output_file_path <- "....csv"
+write.csv(valid_run_otu5_final_rare, output_file_path, row.names = FALSE)
+
+# Screen out samples that have residuals exceeding two standard deviations from the mean of the residuals 
+modern_elevation_rareF <- read.delim("....txt")
+modern_otu5_final_rareF <- read.delim("....txt")
+
+# Running the modern calibration model on filtered data
+modern_mod_otu5_final_rareF <- run_modern(modern_elevation_rareF,
+                                               modern_otu5_final_rareF, 
+                                               dx = 0.2)
+
+# Save Model Output to File, put in the file name accordingly
+saveRDS(modern_mod_otu5_final_rareF, file = "....rds")
+
+# Run reconstruction model
+core_mod_otu5_final_rareF <- run_core(modern_mod_otu5_final_rareF,
+                                              core_species = core_otu5_final_rare,
+                                              prior_el = MP_priors)
+
+saveRDS(core_mod_otu5_final_rareF, file = "....rds") #put in the file name accordingly
+
+#return a data frame of SWLI estimates with uncertainties and a corresponding plot of the results.
+swli_resF <- swli_results(core_mod_otu5_final_rareF)
+#Look at the result
+swli_resF$SWLI_dat
+#Get a plot of the results
+swli_resF$p_SWLI
+
+#put in the file name accordingly
+result_path <- "....csv"
+write.csv(swli_resF$SWLI_dat, result_path, row.names = FALSE)
+
+# Run a full 10-fold cross validation to get an out of sample prediction for all the modern samples
+valid_run_otu5_final_rareF <- run_valid(modern_elevation = modern_elevation_rareF, 
+                                          modern_species = modern_otu5_final_rareF,
+                                          n_folds = 10,
+                                          dx = 0.2)
+
+saveRDS(valid_run_otu5_final_rareF, file = "....rds") #put in the file name accordingly
+
+valid_run_otu5_final_rareF %>% summarise(coverage = sum(lower < True & True < upper)*100/n(),
+                        RMSE = sqrt(mean((True - SWLI)^2))) %>% round(2)
+
+#plot modeled vs. true values from cross-validation
+ggplot(valid_run_otu5_final_rareF , aes(x = True, y = SWLI)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin = lower, ymax = upper)) +
+  geom_line(aes(x = True, y = True))
+
+# Define the file path and name for the CSV file #put in the file name accordingly
+output_file_path <- "....csv"
+write.csv(valid_run_otu5_final_rareF, output_file_path, row.names = FALSE)

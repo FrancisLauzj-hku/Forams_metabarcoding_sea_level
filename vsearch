@@ -1,0 +1,73 @@
+# Primer_removal
+$ ls 0.Rawseq/ | cut -d_ -f1 | sort | uniq
+samples=$(ls 0.Rawseq/ | cut -d_ -f1 | sort | uniq)
+echo $samples
+for s in $samples;
+do
+        cutadapt -g ^AAGGGCACCACAAGAACGC -G ^CCACCTATCACAYAATCATG \
+        -o 1.Primer_removal/${s}_1.fastq -p 1.Primer_removal/${s}_2.fastq --discard-untrimmed \
+        0.Rawseq/${s}_1.fastq 0.Rawseq/${s}_2.fastq ;
+done
+
+# Pair_merging
+samples=$(ls 1.Primer_removal/ | cut -d_ -f1 | sort | uniq)
+for s in $samples;
+do
+        pear -f 1.Primer_removal/${s}_1.fq -r 1.Primer_removal/${s}_2.fq \
+        -o 2.Pair_merging/$s -q 26 -v 10;
+done
+# Discard unsless files
+cd 2.Pair_merging/
+rm *discarded* *unassembled* && rename -e "s/assembled\.//" *
+cd ../
+
+# Data Concatenation
+for f in *;
+do                         # ↓ the space here should be included!
+        sed -e "s/\(^@A01050.*\) .*$/\1;sample=${f%.*};/" $f \
+        >> ../concatenated_data.fastq;
+done
+
+# Quality rate filtering
+vsearch --fastx_filter concatenated_data.fastq --fastq_maxee 1 --fastaout q_filtered.fasta
+
+#dereplication
+vsearch --derep_fulllength q_filtered.fasta --output derep_seq.fasta --sizeout --relabel uniq
+
+# denoising
+vsearch --cluster_unoise derep_seq.fasta --minsize 4 --unoise_alpha 8 --centroids denoisied.fasta
+
+#unwrap_to compensate the default of VSEARCH
+perl -pe '$. > 1 and /^>/ ? print "\n" : chomp' denoisied.fasta > unwraped.fasta
+
+#length distribution
+sed -n '2~2p' unwraped.fasta | while read l; do echo ${#l} ; done | sort | uniq -c
+
+#Length filtering
+vsearch --fastx_filter denoisied.fasta --fastq_minlen 90 --fastq_maxlen 230 --fastaout lengthfiled_seq.fasta
+
+#chimera removal 
+vsearch --uchime3_denovo lengthfiled_seq.fasta --nonchimeras dechi_seq.fasta
+
+
+#concat fastq to fasta 
+seqtk seq -a concatenated_data.fastq > concatenated_data.fasta
+
+#Mapping of OTUs
+vsearch --usearch_global concatenated_data.fasta -db dechi_seq.fasta -id 0.97 -otutabout Forams_OTUs.tsv
+
+
+# Genebank database download
+wget [insert specific file ftp link here e.g.https://ftp.ncbi.nlm.nih.gov/blast/db/SSU_eukaryote_rRNA.tar.gz]
+
+# Transfer tsv to fasta (if neccessary)
+awk -F'\t' '{print ">"$1"\n"$2}' Forams_OTUs.tsv > Forams_OTUs.fasta
+
+#Create custom database (or to download gz files from NCBI and unzip directly)
+makeblastdb -in Foramsdb240913.fasta -parse_seqids -out Foram_db0913 -dbtype nucl -taxid_map Forams_taxid_map.txt
+
+# Blast to the local db (make sure to put on the prefix of files within db directory)
+blastn -db Forum_db/Foram_db -query dechi_seq.fasta -outfmt 5 -out Forams_blast.xml -evalue 0.001
+
+# Zip the xml file
+zip Forams_blast.xml.zip Forams_blast.xml
